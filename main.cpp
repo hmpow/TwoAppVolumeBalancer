@@ -248,6 +248,14 @@ static void SetComboEditText(HWND hCombo, const std::wstring& text) {
         SetWindowTextW(hCombo, text.c_str());
     }
 }
+
+// 選択解除して編集欄も空にする
+static void ClearComboSelection(HWND hCombo, std::wstring& sidVar) {
+    SendMessage(hCombo, CB_SETCURSEL, (WPARAM)-1, 0);
+    SetComboEditText(hCombo, L"");
+    sidVar.clear();
+}
+
 static int FindIndexBySid(const std::wstring& sid) {
     for (size_t i = 0; i < g_sessions.size(); ++i) {
         if (g_sessions[i].sid == sid) return (int)i;
@@ -391,8 +399,8 @@ static void ApplyBalanceFromTrackbar() {
 
     switch (g_controlMode) {
     case MODE_CENTER_HALF:
-        a = (100 - pos) / 100.0f;
-        b = pos / 100.0f;
+        b = (100 - pos) / 100.0f;
+        a = pos / 100.0f;
         break;
 	case MODE_CENTER_MAX:
         if (pos < 50) {
@@ -418,8 +426,8 @@ static void ApplyBalanceFromTrackbar() {
 		break; // 何もしない
     }
 
-    SetSessionVolumeBySid(g_selectedSidA, a);
-    SetSessionVolumeBySid(g_selectedSidB, b);
+    SetSessionVolumeBySid(g_selectedSidA, b);
+    SetSessionVolumeBySid(g_selectedSidB, a);
 }
 
 // ===== Refresh (enumerate + repopulate if changed) =====
@@ -548,6 +556,35 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         const WORD code = HIWORD(wParam);
 
         if ((id == IDC_COMBO_A || id == IDC_COMBO_B) && code == CBN_SELCHANGE) {
+            // 選択インデックスからSIDとPIDを更新
+            int selA = (int)SendMessage(g_comboA, CB_GETCURSEL, 0, 0);
+            int selB = (int)SendMessage(g_comboB, CB_GETCURSEL, 0, 0);
+
+            std::wstring sidA, sidB;
+            DWORD pidA = 0, pidB = 0;
+
+            if (selA >= 0 && selA < (int)g_sessions.size()) {
+                sidA = g_sessions[selA].sid;
+                pidA = g_sessions[selA].pid;
+                g_selectedSidA = sidA;
+            }
+            if (selB >= 0 && selB < (int)g_sessions.size()) {
+                sidB = g_sessions[selB].sid;
+                pidB = g_sessions[selB].pid;
+                g_selectedSidB = sidB;
+            }
+
+            // PIDも比較して同じならNG
+            if (!sidA.empty() && !sidB.empty()
+                && sidA == sidB && pidA == pidB)
+            {
+                MessageBeep(MB_ICONEXCLAMATION);
+                MessageBoxW(hWnd, L"同じアプリは選択できません。", L"注意", MB_OK | MB_ICONWARNING);
+
+                // B を未割当へ
+                ClearComboSelection(g_comboB, g_selectedSidB);
+            }
+
             ApplyBalanceFromTrackbar();
             return 0;
         }
