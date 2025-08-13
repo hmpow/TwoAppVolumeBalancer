@@ -474,7 +474,7 @@ static void DoLayout(HWND hWnd) {
 
     const int margin = 8;
     const int comboWidth = (w - (margin * 3)) / 2;
-    const int comboHeight = 120;
+    const int comboHeight = 200;
     const int trackHeight = 40;
     const int radioHeight = 24;
 
@@ -515,11 +515,11 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         SendMessage(g_track, TBM_SETTICFREQ, 5, 0); // wParam 目盛りの頻度。lParam ゼロを指定してください。
 
         // ★ ラジオボタン（左：CENTER MAX、右：CENTER HALF）
-        g_radioMax = CreateWindowExW(0, L"BUTTON", L"CENTER MAX",
+        g_radioMax = CreateWindowExW(0, L"BUTTON", L"中央 100-100",
             WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP,
             0, 0, 0, 0, hWnd, (HMENU)IDC_RAD_MAX, g_hInst, nullptr);
 
-        g_radioHalf = CreateWindowExW(0, L"BUTTON", L"CENTER HALF",
+        g_radioHalf = CreateWindowExW(0, L"BUTTON", L"中央 50-50",
             WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
             0, 0, 0, 0, hWnd, (HMENU)IDC_RAD_HALF, g_hInst, nullptr);
 
@@ -666,7 +666,7 @@ int APIENTRY wWinMain(
     if (!RegisterClassExW(&wc)) { CoUninitialize(); return 1; }
 
     g_hWnd = CreateWindowExW(0, CLASS_NAME, WINDOW_NAME,
-        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 640, 300,
+        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 640, 360,
         nullptr, nullptr, hInstance, nullptr);
     if (!g_hWnd) { CoUninitialize(); return 1; }
 
