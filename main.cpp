@@ -11,6 +11,7 @@
 #include <vector>
 #include <set>
 #include <algorithm>
+#include <map>
 
 #pragma comment(lib, "Ole32.lib")
 #pragma comment(lib, "Uuid.lib")
@@ -254,10 +255,35 @@ static void RepopulateCombos(BOOL keepSelection) {
     SendMessage(g_comboA, CB_RESETCONTENT, 0, 0);
     SendMessage(g_comboB, CB_RESETCONTENT, 0, 0);
 
+    // まず name の総数を数える（重複検出用）
+    std::map<std::wstring, int> totalCount;
+    for (size_t i = 0; i < g_sessions.size(); ++i) {
+        totalCount[g_sessions[i].name]++;
+    }
+
+    // 同じ name の何個目かを管理
+    std::map<std::wstring, int> seenCount;
+
+    // アイテム投入（2つ目以降は "name (PID)" にする）
     for (size_t i = 0; i < g_sessions.size(); ++i) {
         const SessionEntry& s = g_sessions[i];
-        SendMessage(g_comboA, CB_ADDSTRING, 0, (LPARAM)s.name.c_str());
-        SendMessage(g_comboB, CB_ADDSTRING, 0, (LPARAM)s.name.c_str());
+        int& seen = seenCount[s.name];  // デフォルト0
+        std::wstring label;
+
+        if (totalCount[s.name] > 1 && seen >= 1) {
+            // 2個目以降 → name に (PID) を付ける
+            wchar_t pidbuf[32];
+            _snwprintf_s(pidbuf, _TRUNCATE, L"%lu", (unsigned long)s.pid);
+            label = s.name + L" (" + pidbuf + L")";
+        }
+        else {
+            // 1個目 → そのまま
+            label = s.name;
+        }
+        seen++;
+
+        SendMessage(g_comboA, CB_ADDSTRING, 0, (LPARAM)label.c_str());
+        SendMessage(g_comboB, CB_ADDSTRING, 0, (LPARAM)label.c_str());
     }
 
     int selA = -1, selB = -1;
@@ -289,6 +315,7 @@ static void RepopulateCombos(BOOL keepSelection) {
     UpdateWindow(g_comboA);
     UpdateWindow(g_comboB);
 }
+
 
 // ===== Set volume of a session by SID =====
 static void SetSessionVolumeBySid(const std::wstring& sid, float volume01) {
@@ -479,7 +506,17 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
-int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
+// 修正方針（詳細な手順）
+// 1. wWinMain の宣言に SAL アノテーション（_In_ など）を追加する。
+// 2. 既存のコードの引数名・型はそのまま、アノテーションのみ追加。
+// 3. windows.h を include しているので、SAL マクロは利用可能。
+
+int APIENTRY wWinMain(
+    _In_ HINSTANCE hInstance,
+    _In_opt_ HINSTANCE hPrevInstance,
+    _In_ LPWSTR lpCmdLine,
+    _In_ int nCmdShow
+) {
     g_hInst = hInstance;
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(hr)) return 1;
@@ -494,7 +531,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
 
     if (!RegisterClassExW(&wc)) { CoUninitialize(); return 1; }
 
-    g_hWnd = CreateWindowExW(0, CLASS_NAME, L"Audio Balance Mixer (2-App)",
+    g_hWnd = CreateWindowExW(0, CLASS_NAME, L"Two App Audio Volume Balancer",
         WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 720, 420,
         nullptr, nullptr, hInstance, nullptr);
     if (!g_hWnd) { CoUninitialize(); return 1; }
