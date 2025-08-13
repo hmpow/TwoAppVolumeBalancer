@@ -64,6 +64,7 @@ struct SessionEntry {
 HINSTANCE               g_hInst = nullptr;
 HWND                    g_hWnd = nullptr;
 HWND                    g_comboA = nullptr, g_comboB = nullptr, g_track = nullptr;
+HBRUSH                  g_hbrBackground = nullptr;
 
 IMMDeviceEnumerator* g_pEnumerator = nullptr;
 IMMDevice* g_pDevice = nullptr;
@@ -456,6 +457,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 
         SendMessage(g_track, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
         SendMessage(g_track, TBM_SETPOS, TRUE, 50); // 中央（50/50）
+        SendMessage(g_track, TBM_SETTICFREQ, 5, 0); // wParam 目盛りの頻度。lParam ゼロを指定してください。
 
         DoLayout(hWnd);
 
@@ -468,6 +470,16 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         SetTimer(hWnd, 1, 1000, nullptr);
         return 0;
     }
+
+    case WM_CTLCOLORDLG:
+    case WM_CTLCOLORSTATIC:
+    case WM_CTLCOLORBTN:
+    {
+        HDC hdc = (HDC)wParam;
+        SetBkMode(hdc, TRANSPARENT);
+        return (INT_PTR)g_hbrBackground;
+    }
+
     case WM_SIZE:
         DoLayout(hWnd);
         return 0;
@@ -517,9 +529,14 @@ int APIENTRY wWinMain(
     _In_ LPWSTR lpCmdLine,
     _In_ int nCmdShow
 ) {
-    g_hInst = hInstance;
+
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(hr)) return 1;
+
+    g_hInst = hInstance;
+
+    //トラックバーを白くする
+    g_hbrBackground = CreateSolidBrush(RGB(255, 255, 255));
 
     const wchar_t CLASS_NAME[] = L"AudioBalanceMixerWnd";
     WNDCLASSEXW wc = { sizeof(wc) };
@@ -532,7 +549,7 @@ int APIENTRY wWinMain(
     if (!RegisterClassExW(&wc)) { CoUninitialize(); return 1; }
 
     g_hWnd = CreateWindowExW(0, CLASS_NAME, L"Two App Audio Volume Balancer",
-        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 720, 420,
+        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 720, 240,
         nullptr, nullptr, hInstance, nullptr);
     if (!g_hWnd) { CoUninitialize(); return 1; }
 
