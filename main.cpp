@@ -1,6 +1,5 @@
 ﻿/* Please note: This code was created by AI, but has not been verified for copyright infringement. */
 
-
 #define _WIN32_WINNT 0x0A00
 #include <windows.h>
 #include <commctrl.h>      // Trackbar
@@ -17,10 +16,22 @@
 #pragma comment(lib, "Uuid.lib")
 #pragma comment(lib, "Comctl32.lib")
 
+// ===== App Name =====
+const wchar_t WINDOW_NAME[] = L"同時参加音量バランサー";
+
+// ===== Mode Setting =====
+#define MODE_CENTER_MAX  1
+#define MODE_CENTER_HALF 2
+int   g_controlMode = MODE_CENTER_MAX; // 既定：CENTER MAX
+HWND  g_radioMax = nullptr;
+HWND  g_radioHalf = nullptr;
+
 // ===== UI IDs / Messages =====
 #define IDC_COMBO_A     1001
 #define IDC_COMBO_B     1002
 #define IDC_TRACK       1003
+#define IDC_RAD_MAX     1004   // 「CENTER MAX」
+#define IDC_RAD_HALF    1005   // 「CENTER HALF」
 #define WMAPP_REFRESH   (WM_APP + 1)
 
 // ===== Helpers =====
@@ -376,8 +387,36 @@ static void ApplyBalanceFromTrackbar() {
     int pos = (int)SendMessage(g_track, TBM_GETPOS, 0, 0);
     if (pos < 0) pos = 0; else if (pos > 100) pos = 100;
 
-    float a = (100 - pos) / 100.0f;
-    float b = pos / 100.0f;
+    float a = 1.0f, b = 1.0f;
+
+    switch (g_controlMode) {
+    case MODE_CENTER_HALF:
+        a = (100 - pos) / 100.0f;
+        b = pos / 100.0f;
+        break;
+	case MODE_CENTER_MAX:
+        if (pos < 50) {
+            // 0 <= pos < 50
+            // A: 0% → 100%（線形）, B: 100%固定
+            a = pos / 50.0f;   // 0.0 .. 1.0
+            b = 1.0f;          // 100%
+        }
+        else if (pos == 50) {
+            // 中央
+            a = 1.0f;          // 100%
+            b = 1.0f;          // 100%
+        }
+        else { // pos > 50
+            // 50 < pos <= 100
+            // A: 100%固定, B: 100% → 0%（線形）
+            a = 1.0f;                 // 100%
+            b = (100 - pos) / 50.0f;  // 1.0 .. 0.0
+            if (b < 0.0f) b = 0.0f;
+        }
+        break;
+	default:
+		break; // 何もしない
+    }
 
     SetSessionVolumeBySid(g_selectedSidA, a);
     SetSessionVolumeBySid(g_selectedSidB, b);
@@ -427,15 +466,23 @@ static void DoLayout(HWND hWnd) {
 
     const int margin = 8;
     const int comboWidth = (w - (margin * 3)) / 2;
-    const int comboHeight = 120; // CBS_SIMPLE は常時リスト表示
+    const int comboHeight = 120;
     const int trackHeight = 40;
+    const int radioHeight = 24;
 
     MoveWindow(g_comboA, margin, margin, comboWidth, comboHeight, TRUE);
     MoveWindow(g_comboB, margin * 2 + comboWidth, margin, comboWidth, comboHeight, TRUE);
 
     int trackY = margin + comboHeight + margin;
     MoveWindow(g_track, margin, trackY, w - margin * 2, trackHeight, TRUE);
+
+    // ラジオはトラックバーの下に左右配置
+    int radiosY = trackY + trackHeight + margin;
+    int halfW = (w - margin * 3) / 2;
+    MoveWindow(g_radioMax, margin, radiosY, halfW, radioHeight, TRUE);
+    MoveWindow(g_radioHalf, margin * 2 + halfW, radiosY, halfW, radioHeight, TRUE);
 }
+
 
 static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
@@ -458,6 +505,18 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         SendMessage(g_track, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
         SendMessage(g_track, TBM_SETPOS, TRUE, 50); // 中央（50/50）
         SendMessage(g_track, TBM_SETTICFREQ, 5, 0); // wParam 目盛りの頻度。lParam ゼロを指定してください。
+
+        // ★ ラジオボタン（左：CENTER MAX、右：CENTER HALF）
+        g_radioMax = CreateWindowExW(0, L"BUTTON", L"CENTER MAX",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP,
+            0, 0, 0, 0, hWnd, (HMENU)IDC_RAD_MAX, g_hInst, nullptr);
+
+        g_radioHalf = CreateWindowExW(0, L"BUTTON", L"CENTER HALF",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
+            0, 0, 0, 0, hWnd, (HMENU)IDC_RAD_HALF, g_hInst, nullptr);
+
+        // 既定は CENTER MAX を選択
+        SendMessage(g_radioMax, BM_SETCHECK, BST_CHECKED, 0);
 
         DoLayout(hWnd);
 
@@ -487,11 +546,32 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
     case WM_COMMAND: {
         const WORD id = LOWORD(wParam);
         const WORD code = HIWORD(wParam);
-        if ((id == IDC_COMBO_A || id == IDC_COMBO_B) && (code == CBN_SELCHANGE)) {
+
+        if ((id == IDC_COMBO_A || id == IDC_COMBO_B) && code == CBN_SELCHANGE) {
             ApplyBalanceFromTrackbar();
+            return 0;
+        }
+
+        if (code == BN_CLICKED) {
+            if (id == IDC_RAD_MAX) {
+                g_controlMode = MODE_CENTER_MAX;
+                // 相互排他（念のため）
+                SendMessage(g_radioMax, BM_SETCHECK, BST_CHECKED, 0);
+                SendMessage(g_radioHalf, BM_SETCHECK, BST_UNCHECKED, 0);
+                ApplyBalanceFromTrackbar(); // 即反映
+                return 0;
+            }
+            else if (id == IDC_RAD_HALF) {
+                g_controlMode = MODE_CENTER_HALF;
+                SendMessage(g_radioMax, BM_SETCHECK, BST_UNCHECKED, 0);
+                SendMessage(g_radioHalf, BM_SETCHECK, BST_CHECKED, 0);
+                ApplyBalanceFromTrackbar();
+                return 0;
+            }
         }
         return 0;
     }
+
 
     case WM_HSCROLL:
         if ((HWND)lParam == g_track) {
@@ -548,8 +628,8 @@ int APIENTRY wWinMain(
 
     if (!RegisterClassExW(&wc)) { CoUninitialize(); return 1; }
 
-    g_hWnd = CreateWindowExW(0, CLASS_NAME, L"Two App Audio Volume Balancer",
-        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 720, 240,
+    g_hWnd = CreateWindowExW(0, CLASS_NAME, WINDOW_NAME,
+        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 640, 300,
         nullptr, nullptr, hInstance, nullptr);
     if (!g_hWnd) { CoUninitialize(); return 1; }
 
