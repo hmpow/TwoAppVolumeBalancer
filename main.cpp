@@ -287,24 +287,16 @@ static void RepopulateCombos(BOOL keepSelection) {
     // アイテム投入（2つ目以降は "name (PID)" にする）
     for (size_t i = 0; i < g_sessions.size(); ++i) {
         const SessionEntry& s = g_sessions[i];
-        int& seen = seenCount[s.name];  // デフォルト0
-        std::wstring label;
 
-        if (totalCount[s.name] > 1 && seen >= 1) {
-            // 2個目以降 → name に (PID) を付ける
-            wchar_t pidbuf[32];
-            _snwprintf_s(pidbuf, _TRUNCATE, L"%lu", (unsigned long)s.pid);
-            label = s.name + L" (" + pidbuf + L")";
-        }
-        else {
-            // 1個目 → そのまま
-            label = s.name;
-        }
-        seen++;
+        wchar_t pidbuf[32];
+        _snwprintf_s(pidbuf, _TRUNCATE, L"%lu", (unsigned long)s.pid);
+
+        std::wstring label = std::wstring(pidbuf) + L"_" + s.name;
 
         SendMessage(g_comboA, CB_ADDSTRING, 0, (LPARAM)label.c_str());
         SendMessage(g_comboB, CB_ADDSTRING, 0, (LPARAM)label.c_str());
     }
+
 
     int selA = -1, selB = -1;
     if (keepSelection) {
