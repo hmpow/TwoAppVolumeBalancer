@@ -26,6 +26,11 @@ int   g_controlMode = MODE_CENTER_MAX; // 既定：CENTER MAX
 HWND  g_radioMax = nullptr;
 HWND  g_radioHalf = nullptr;
 
+#define DEVICE_ROLE eMultimedia
+
+#define COMBO_FONT_SIZE  11   // pt 単位で指定（例: 16pt）
+#define COMBO_FONT_NAME  L"" // フォント名 空白だとデフォルト
+
 // ===== UI IDs / Messages =====
 #define IDC_COMBO_A     1001
 #define IDC_COMBO_B     1002
@@ -76,6 +81,7 @@ HINSTANCE               g_hInst = nullptr;
 HWND                    g_hWnd = nullptr;
 HWND                    g_comboA = nullptr, g_comboB = nullptr, g_track = nullptr;
 HBRUSH                  g_hbrBackground = nullptr;
+HFONT                   g_hFontCombo = nullptr;
 
 IMMDeviceEnumerator* g_pEnumerator = nullptr;
 IMMDevice* g_pDevice = nullptr;
@@ -462,7 +468,7 @@ static void RefreshSessionsAndUI(BOOL keepSelection) {
 static bool InitWasapi() {
     if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&g_pEnumerator))))
         return false;
-    if (FAILED(g_pEnumerator->GetDefaultAudioEndpoint(eRender, eMultimedia, &g_pDevice)))
+    if (FAILED(g_pEnumerator->GetDefaultAudioEndpoint(eRender, DEVICE_ROLE, &g_pDevice)))
         return false;
     if (FAILED(g_pDevice->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr, (void**)&g_pSessionMgr2)))
         return false;
@@ -518,14 +524,18 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_BAR_CLASSES };
         InitCommonControlsEx(&icc);
 
+        // コンボボックス生成
         g_comboA = CreateWindowExW(0, WC_COMBOBOXW, L"",
             WS_CHILD | WS_VISIBLE | CBS_SIMPLE | WS_VSCROLL,
             0, 0, 0, 0, hWnd, (HMENU)IDC_COMBO_A, g_hInst, nullptr);
+        SendMessage(g_comboA, WM_SETFONT, (WPARAM)g_hFontCombo, TRUE);
 
         g_comboB = CreateWindowExW(0, WC_COMBOBOXW, L"",
             WS_CHILD | WS_VISIBLE | CBS_SIMPLE | WS_VSCROLL,
             0, 0, 0, 0, hWnd, (HMENU)IDC_COMBO_B, g_hInst, nullptr);
+        SendMessage(g_comboB, WM_SETFONT, (WPARAM)g_hFontCombo, TRUE);
 
+        // トラックバー生成
         g_track = CreateWindowExW(0, TRACKBAR_CLASSW, L"",
             WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS,
             0, 0, 0, 0, hWnd, (HMENU)IDC_TRACK, g_hInst, nullptr);
@@ -534,14 +544,17 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         SendMessage(g_track, TBM_SETPOS, TRUE, 50); // 中央（50/50）
         SendMessage(g_track, TBM_SETTICFREQ, 5, 0); // wParam 目盛りの頻度。lParam ゼロを指定してください。
 
+        // ラジオボタン生成
         // ★ ラジオボタン（左：CENTER MAX、右：CENTER HALF）
         g_radioMax = CreateWindowExW(0, L"BUTTON", L"中央 100-100",
             WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP,
             0, 0, 0, 0, hWnd, (HMENU)IDC_RAD_MAX, g_hInst, nullptr);
+        SendMessage(g_radioMax, WM_SETFONT, (WPARAM)g_hFontCombo, TRUE);
 
         g_radioHalf = CreateWindowExW(0, L"BUTTON", L"中央 50-50",
             WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
             0, 0, 0, 0, hWnd, (HMENU)IDC_RAD_HALF, g_hInst, nullptr);
+        SendMessage(g_radioHalf, WM_SETFONT, (WPARAM)g_hFontCombo, TRUE);
 
         // 既定は CENTER MAX を選択
         SendMessage(g_radioMax, BM_SETCHECK, BST_CHECKED, 0);
@@ -683,6 +696,24 @@ int APIENTRY wWinMain(
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
 
     if (!RegisterClassExW(&wc)) { CoUninitialize(); return 1; }
+
+
+    // フォントの準備
+    HDC hdc = GetDC(nullptr);
+    int logPixY = GetDeviceCaps(hdc, LOGPIXELSY);
+    ReleaseDC(nullptr, hdc);
+
+    // pt → 論理単位に変換
+    int height = MulDiv(COMBO_FONT_SIZE, logPixY, 72);
+
+    g_hFontCombo = CreateFontW(
+        height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+        COMBO_FONT_NAME   // 好きなフォント名
+    );
+
+
 
     g_hWnd = CreateWindowExW(0, CLASS_NAME, WINDOW_NAME,
         WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 640, 360,
