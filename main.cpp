@@ -86,6 +86,8 @@ std::set<std::wstring>     g_registeredSids;  // 現在イベント登録済みS
 std::set<std::wstring>     g_lastSids;        // 直近列挙のSID集合（差分検知用）
 std::wstring               g_selectedSidA;     // 選択保持（SID）
 std::wstring               g_selectedSidB;     // 選択保持（SID）
+DWORD                      g_selectedPidA = 0;
+DWORD                      g_selectedPidB = 0;
 
 // 前方宣言
 struct SessionWatcher;
@@ -221,6 +223,20 @@ static bool BuildSessionListAndRegisterAndGetChanged() {
 
         g_sessions.push_back(SessionEntry{ key, name, pid });
 
+		// デバッグ出力
+        
+#ifdef _DEBUG
+        // デバッグ文字列を組み立てる
+        std::wstring dbg =
+            L"Session " + std::to_wstring(i) +
+            L": " + key +
+            L" (" + name + L"), PID: " +
+            std::to_wstring(pid) + L"\n";
+
+        // 出力
+        OutputDebugStringW(dbg.c_str());
+#endif
+
         pCtrl2->Release();
         pCtrl->Release();
     }
@@ -256,12 +272,15 @@ static void ClearComboSelection(HWND hCombo, std::wstring& sidVar) {
     sidVar.clear();
 }
 
-static int FindIndexBySid(const std::wstring& sid) {
+// 既存の FindIndexBySid を置き換え
+static int FindIndexBySidPid(const std::wstring& sid, DWORD pid) {
     for (size_t i = 0; i < g_sessions.size(); ++i) {
-        if (g_sessions[i].sid == sid) return (int)i;
+        if (g_sessions[i].sid == sid && g_sessions[i].pid == pid) return (int)i;
     }
     return -1;
 }
+
+
 
 // ===== Repopulate combos (only when changed) =====
 static void RepopulateCombos(BOOL keepSelection) {
@@ -300,8 +319,8 @@ static void RepopulateCombos(BOOL keepSelection) {
 
     int selA = -1, selB = -1;
     if (keepSelection) {
-        if (!g_selectedSidA.empty()) selA = FindIndexBySid(g_selectedSidA);
-        if (!g_selectedSidB.empty()) selB = FindIndexBySid(g_selectedSidB);
+        if (!g_selectedSidA.empty()) selA = FindIndexBySidPid(g_selectedSidA, g_selectedPidA);
+        if (!g_selectedSidB.empty()) selB = FindIndexBySidPid(g_selectedSidB, g_selectedPidB);
     }
 
     if (selA >= 0) {
@@ -328,9 +347,10 @@ static void RepopulateCombos(BOOL keepSelection) {
     UpdateWindow(g_comboB);
 }
 
-
-// ===== Set volume of a session by SID =====
-static void SetSessionVolumeBySid(const std::wstring& sid, float volume01) {
+// ===== Set volume of a session by PID =====
+// 旧: SetSessionVolumeBySid(sid, volume)
+// 新:
+static void SetSessionVolumeBySidPid(const std::wstring& sid, DWORD pid, float volume01) {
     if (sid.empty() || !g_pSessionMgr2) return;
 
     IAudioSessionEnumerator* pEnum = nullptr;
@@ -352,8 +372,9 @@ static void SetSessionVolumeBySid(const std::wstring& sid, float volume01) {
         if (SUCCEEDED(pCtrl2->GetSessionIdentifier(&wsid)) && wsid) {
             key = wsid; CoTaskMemFree(wsid);
         }
+        DWORD curPid = 0; pCtrl2->GetProcessId(&curPid);
 
-        if (key == sid) {
+        if (key == sid && curPid == pid) { // ★ SID+PID で一致
             if (SUCCEEDED(pCtrl->QueryInterface(IID_PPV_ARGS(&pVol))) && pVol) {
                 if (volume01 < 0.0f) volume01 = 0.0f;
                 else if (volume01 > 1.0f) volume01 = 1.0f;
@@ -368,9 +389,9 @@ static void SetSessionVolumeBySid(const std::wstring& sid, float volume01) {
         pCtrl2->Release();
         pCtrl->Release();
     }
-
     pEnum->Release();
 }
+
 
 // ===== Apply balance from trackbar =====
 static void ApplyBalanceFromTrackbar() {
@@ -379,8 +400,15 @@ static void ApplyBalanceFromTrackbar() {
     int selA = (int)SendMessage(g_comboA, CB_GETCURSEL, 0, 0);
     int selB = (int)SendMessage(g_comboB, CB_GETCURSEL, 0, 0);
 
-    if (selA >= 0 && selA < (int)g_sessions.size()) g_selectedSidA = g_sessions[selA].sid;
-    if (selB >= 0 && selB < (int)g_sessions.size()) g_selectedSidB = g_sessions[selB].sid;
+    if (selA >= 0 && selA < (int)g_sessions.size()) {
+        g_selectedSidA = g_sessions[selA].sid;
+        g_selectedPidA = g_sessions[selA].pid;   // ★ 追加
+    }
+    if (selB >= 0 && selB < (int)g_sessions.size()) {
+        g_selectedSidB = g_sessions[selB].sid;
+        g_selectedPidB = g_sessions[selB].pid;   // ★ 追加
+    }
+
 
     if (g_selectedSidA.empty() || g_selectedSidB.empty()) return;
 
@@ -418,8 +446,8 @@ static void ApplyBalanceFromTrackbar() {
 		break; // 何もしない
     }
 
-    SetSessionVolumeBySid(g_selectedSidA, b);
-    SetSessionVolumeBySid(g_selectedSidB, a);
+    SetSessionVolumeBySidPid(g_selectedSidA, g_selectedPidA, b);
+    SetSessionVolumeBySidPid(g_selectedSidB, g_selectedPidB, a);
 }
 
 // ===== Refresh (enumerate + repopulate if changed) =====
@@ -548,7 +576,6 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         const WORD code = HIWORD(wParam);
 
         if ((id == IDC_COMBO_A || id == IDC_COMBO_B) && code == CBN_SELCHANGE) {
-            // 選択インデックスからSIDとPIDを更新
             int selA = (int)SendMessage(g_comboA, CB_GETCURSEL, 0, 0);
             int selB = (int)SendMessage(g_comboB, CB_GETCURSEL, 0, 0);
 
@@ -559,27 +586,27 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 sidA = g_sessions[selA].sid;
                 pidA = g_sessions[selA].pid;
                 g_selectedSidA = sidA;
+                g_selectedPidA = pidA;   // ★ 追加
             }
             if (selB >= 0 && selB < (int)g_sessions.size()) {
                 sidB = g_sessions[selB].sid;
                 pidB = g_sessions[selB].pid;
                 g_selectedSidB = sidB;
+                g_selectedPidB = pidB;   // ★ 追加
             }
 
-            // PIDも比較して同じならNG
-            if (!sidA.empty() && !sidB.empty()
-                && sidA == sidB && pidA == pidB)
-            {
+            // 同一判定は「SIDもPIDも同じならNG」（PIDが違えばOK）
+            if (!sidA.empty() && !sidB.empty() && sidA == sidB && pidA == pidB) {
                 MessageBeep(MB_ICONEXCLAMATION);
                 MessageBoxW(hWnd, L"同じアプリは選択できません。", L"注意", MB_OK | MB_ICONWARNING);
-
-                // B を未割当へ
                 ClearComboSelection(g_comboB, g_selectedSidB);
+                g_selectedPidB = 0; // ★ 追加：PIDもクリア
             }
 
             ApplyBalanceFromTrackbar();
             return 0;
         }
+
 
         if (code == BN_CLICKED) {
             if (id == IDC_RAD_MAX) {
