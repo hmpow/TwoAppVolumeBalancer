@@ -314,7 +314,7 @@ static void RepopulateCombos(BOOL keepSelection) {
         const SessionEntry& s = g_sessions[i];
 
         wchar_t pidbuf[32];
-        _snwprintf_s(pidbuf, _TRUNCATE, L"%lu", (unsigned long)s.pid);
+        _snwprintf_s(pidbuf, _TRUNCATE, L"%05lu", (unsigned long)s.pid);
 
         std::wstring label = std::wstring(pidbuf) + L"_" + s.name;
 
